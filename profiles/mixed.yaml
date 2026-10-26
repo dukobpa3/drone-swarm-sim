@@ -1,0 +1,36 @@
+# Mixed swarm: PX4 in gz, ArduPilot with its builtin physics, and a custom
+# process. Builtin-physics drones are not in the gz world; they share its
+# home, offset by their place on the layout.
+name: mixed
+
+world:
+  sim: gz
+  name: default
+  gui: false
+  home: { lat: 47.397742, lon: 8.545594, alt: 488 }
+
+layout:
+  kind: grid
+  spacing: 4
+
+groups:
+  # px4 first: PX4 instances above index 9 share an offboard port.
+  - name: px4
+    autopilot: px4
+    model: gz_x500
+    count: 2
+    params:
+      COM_RC_IN_MODE: 4   # no RC needed to arm in sim
+
+  - name: ap
+    autopilot: ardupilot
+    sim: builtin
+    vehicle: copter
+    count: 2
+
+  # Anything else: a command per drone, expanded with Go templates.
+  - name: echo
+    autopilot: exec
+    sim: none
+    count: 1
+    command: [sh, -c, "echo {{.Name}} sysid {{.SysID}} at {{.Lat}},{{.Lon}}; sleep 86400"]

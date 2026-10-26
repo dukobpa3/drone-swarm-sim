@@ -1,0 +1,21 @@
+# Copy to lab.yaml next to your checkouts (or ~/.config/swarmsim/lab.yaml)
+# and point it at what you have. Leave out sections you do not use: a profile
+# that needs a missing one fails with an error naming it.
+# Relative paths are relative to this file.
+
+# Per-drone working directories (params, eeprom, logs) are kept here.
+run_dir: run
+
+gz:
+  # Script that puts gz on PATH. Leave empty if gz is on PATH already.
+  activate: gz/activate.sh
+
+px4:
+  # PX4 SITL build directory (make px4_sitl_default).
+  build: PX4-Autopilot/build/px4_sitl_default
+
+ardupilot:
+  # Checkout, for Tools/autotest/default_params.
+  root: ardupilot
+  # Directory with arducopter, arduplane, ardurover (./waf configure --board sitl).
+  bin: ardupilot/build/sitl/bin

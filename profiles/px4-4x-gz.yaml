@@ -1,0 +1,18 @@
+# Four PX4 x500 quads in one gz world.
+name: px4-4x-gz
+
+world:
+  sim: gz
+  name: baylands
+  gui: true
+
+# Same square as the manual runs: poses 0,0 1,0 0,1 1,1.
+layout:
+  kind: grid
+  spacing: 1
+
+groups:
+  - name: x500
+    autopilot: px4
+    model: gz_x500
+    count: 4
