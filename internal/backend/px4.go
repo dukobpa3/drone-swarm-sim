@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,6 +26,9 @@ const (
 	px4StartedLine = "Startup script returned successfully"
 	// PX4 keeps running after a failed rcS, so the log is the only signal.
 	px4FailedLine = "Startup script returned with return value"
+	// px4BootTimeout bounds one instance's startup script; a healthy one
+	// finishes in seconds.
+	px4BootTimeout = 90 * time.Second
 )
 
 type px4 struct{}
@@ -93,7 +97,7 @@ func (px4) Specs(env *Env, d config.Drone) ([]supervisor.Spec, error) {
 	bin := filepath.Join(build, "bin")
 	offset := fileSize(log) // the log is appended to; only this run counts
 	booted := func(ctx context.Context) error {
-		return waitLogLine(ctx, log, offset, px4StartedLine, px4FailedLine, 90*time.Second)
+		return px4Hung(waitLogLine(ctx, log, offset, px4StartedLine, px4FailedLine, px4BootTimeout))
 	}
 	spec := supervisor.Spec{
 		Name: d.Name,
@@ -177,23 +181,24 @@ func fileSize(path string) int64 {
 	return 0
 }
 
+// errLogTimeout means the awaited line did not appear in time: the process
+// is alive but stuck.
+var errLogTimeout = errors.New("timed out")
+
 // waitLogLine polls a log file until ok appears after offset, and fails as
-// soon as a line containing fail appears.
+// soon as a line containing fail appears. On timeout the error wraps
+// errLogTimeout and carries the last lines of the log, so it shows where the
+// process stopped.
 func waitLogLine(ctx context.Context, path string, offset int64, ok, fail string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	var seen []byte
 	for time.Now().Before(deadline) {
-		if data, err := os.ReadFile(path); err == nil && int64(len(data)) > offset {
-			data = data[offset:]
-			if bytes.Contains(data, []byte(ok)) {
-				return nil
-			}
-			if i := bytes.Index(data, []byte(fail)); i >= 0 {
-				end := bytes.IndexByte(data[i:], '\n')
-				if end < 0 {
-					end = len(data) - i
-				}
-				return fmt.Errorf("%s (see %s)", data[i:i+end], path)
-			}
+		seen = readFrom(path, offset)
+		if bytes.Contains(seen, []byte(ok)) {
+			return nil
+		}
+		if line := lineWith(seen, fail); line != "" {
+			return fmt.Errorf("%s (see %s)", line, path)
 		}
 		select {
 		case <-ctx.Done():
@@ -201,5 +206,51 @@ func waitLogLine(ctx context.Context, path string, offset int64, ok, fail string
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("no %q in %s after %v", ok, path, timeout)
+	return fmt.Errorf("%w: no %q in %s after %v; last lines:\n%s", errLogTimeout, ok, path, timeout, lastLines(seen, 6))
+}
+
+// px4Hung explains a startup that timed out: stopping the swarm then
+// interrupts PX4's startup script, which makes PX4 log
+// "Startup script returned with return value: 2" after the fact.
+func px4Hung(err error) error {
+	if !errors.Is(err, errLogTimeout) {
+		return err
+	}
+	return fmt.Errorf("startup hung (the %q that follows in its log comes from stopping it, not from the hang): %w", px4FailedLine+": 2", err)
+}
+
+func readFrom(path string, offset int64) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil || int64(len(data)) <= offset {
+		return nil
+	}
+	return data[offset:]
+}
+
+// lineWith returns the first line containing s, or "".
+func lineWith(data []byte, s string) string {
+	i := bytes.Index(data, []byte(s))
+	if i < 0 {
+		return ""
+	}
+	start := bytes.LastIndexByte(data[:i], '\n') + 1
+	end := bytes.IndexByte(data[i:], '\n')
+	if end < 0 {
+		return string(data[start:])
+	}
+	return string(data[start : i+end])
+}
+
+// lastLines returns the last n non-empty lines, indented.
+func lastLines(data []byte, n int) string {
+	var lines []string
+	for _, l := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, "    "+l)
+		}
+	}
+	if len(lines) == 0 {
+		return "    (log is empty)"
+	}
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
