@@ -77,41 +77,61 @@ func (s *Supervisor) Run(ctx context.Context, specs []Spec) error {
 
 func (s *Supervisor) start(ctx context.Context, cancel context.CancelCauseFunc, specs []Spec) error {
 	for i, sp := range specs {
-		if i > 0 && s.Stagger > 0 {
-			select {
-			case <-time.After(s.Stagger):
-			case <-ctx.Done():
-				return nil
-			}
+		if i > 0 && !s.pause(ctx) {
+			return nil
 		}
-		p, err := s.launch(i, sp)
-		if err != nil {
+		if err := s.startOne(ctx, cancel, i, sp); err != nil {
 			return fmt.Errorf("%s: %w", sp.Name, err)
-		}
-		go func() {
-			<-p.done
-			if ctx.Err() != nil {
-				return
-			}
-			s.logf(sp.Name, i, "exited: %v", exitText(p.err))
-			if sp.Critical {
-				cancel(fmt.Errorf("%s exited: %v", sp.Name, exitText(p.err)))
-			}
-		}()
-		if sp.After != nil {
-			go func() {
-				if err := sp.After(ctx); err != nil && ctx.Err() == nil {
-					s.logf(sp.Name, i, "error: %v", err)
-				}
-			}()
-		}
-		if sp.Ready != nil {
-			if err := waitReady(ctx, p, sp.Ready); err != nil {
-				return fmt.Errorf("%s: %w", sp.Name, err)
-			}
 		}
 	}
 	return nil
+}
+
+// pause waits Stagger between two starts; false means ctx was cancelled.
+func (s *Supervisor) pause(ctx context.Context) bool {
+	if s.Stagger <= 0 {
+		return true
+	}
+	select {
+	case <-time.After(s.Stagger):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// startOne launches one process, watches it, runs its After hook and waits
+// until it is Ready.
+func (s *Supervisor) startOne(ctx context.Context, cancel context.CancelCauseFunc, i int, sp Spec) error {
+	p, err := s.launch(i, sp)
+	if err != nil {
+		return err
+	}
+	go s.watch(ctx, cancel, i, p)
+	if sp.After != nil {
+		go func() {
+			if err := sp.After(ctx); err != nil && ctx.Err() == nil {
+				s.logf(sp.Name, i, "error: %v", err)
+			}
+		}()
+	}
+	if sp.Ready == nil {
+		return nil
+	}
+	return waitReady(ctx, p, sp.Ready)
+}
+
+// watch reports a process that exits while the swarm runs, and takes the
+// swarm down if the process is critical.
+func (s *Supervisor) watch(ctx context.Context, cancel context.CancelCauseFunc, i int, p *proc) {
+	<-p.done
+	if ctx.Err() != nil {
+		return
+	}
+	s.logf(p.spec.Name, i, "exited: %v", exitText(p.err))
+	if p.spec.Critical {
+		cancel(fmt.Errorf("%s exited: %v", p.spec.Name, exitText(p.err)))
+	}
 }
 
 // waitReady fails early if the process dies while it is being waited on.
@@ -179,7 +199,9 @@ func (s *Supervisor) launch(i int, sp Spec) (*proc, error) {
 		logFile.Close()
 		close(p.done)
 	}()
+	s.out.Lock()
 	s.procs = append(s.procs, p)
+	s.out.Unlock()
 	return p, nil
 }
 
