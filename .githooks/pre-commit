@@ -1,0 +1,9 @@
+#!/bin/sh
+# SonarQube gate before commit. Does nothing unless SONAR_HOST_URL and
+# SONAR_TOKEN are set (environment or .env), or when no Go code is staged.
+# Enable per checkout: git config core.hooksPath .githooks
+set -a; [ ! -f .env ] || . ./.env; set +a
+[ -n "$SONAR_HOST_URL" ] && [ -n "$SONAR_TOKEN" ] || exit 0
+command -v sonar-scanner >/dev/null 2>&1 || { echo "sonar-scanner missing, skipping" >&2; exit 0; }
+git diff --cached --name-only | grep -qE '^(cmd|internal)/' || exit 0
+exec make sonar
