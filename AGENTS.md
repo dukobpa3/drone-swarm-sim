@@ -5,6 +5,9 @@ Go launcher for simulated drone swarms (`swarmsim`). See README.md.
 ## Before committing
 
 - `go vet ./...` and `go build ./...` pass; `gofmt -l .` prints nothing.
+- `make lint` (golangci-lint, `.golangci.yml`) adds nothing new. Answer a
+  false positive on its line with `//nolint:<linter> // <why>` or
+  `// NOSONAR <why>`, never by closing the issue on the server.
 - If `SONAR_HOST_URL` and `SONAR_TOKEN` are set (environment or `.env`):
   `make sonar` passes (quality gate green). See what it flagged with
   `sonar list issues --format table`. If they are not set, skip this: it is

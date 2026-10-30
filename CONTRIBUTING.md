@@ -3,6 +3,7 @@
 ```bash
 make build   # bin/swarmsim
 make test
+make lint    # golangci-lint v2 (brew install golangci-lint)
 ```
 
 ## SonarQube (optional)
@@ -21,7 +22,8 @@ SONAR_TOKEN=<user token>
 
 Keep it private: `chmod 600 .env`.
 
-- `make sonar` runs the tests with coverage, the scan and the quality gate;
+- `make sonar` runs the tests with coverage, golangci-lint (its report is
+  imported into Sonar as external issues), the scan and the quality gate;
   a red gate makes it fail.
 - `git config core.hooksPath .githooks` enables a pre-commit hook that runs
   `make sonar` when Go code under `cmd/` or `internal/` is staged. Skip it
