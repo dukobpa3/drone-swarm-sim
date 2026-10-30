@@ -166,7 +166,7 @@ func captureGz(lab *config.Lab, drones []config.Drone) ([]string, error) {
 		return nil, err
 	}
 	if _, err := envcap.LookPath(env, "gz"); err != nil {
-		return nil, fmt.Errorf("gz: %v (set gz.activate in %s)", err, lab.Path())
+		return nil, fmt.Errorf("gz: %w (set gz.activate in %s)", err, lab.Path())
 	}
 	return env, nil
 }

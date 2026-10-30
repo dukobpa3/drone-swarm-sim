@@ -164,7 +164,7 @@ func px4SetParams(ctx context.Context, bin string, index int, params map[string]
 	for _, k := range keys {
 		cmd := exec.CommandContext(ctx, filepath.Join(bin, "px4-param"), "--instance", strconv.Itoa(index), "set", k, strconv.FormatFloat(params[k], 'g', -1, 64))
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("param set %s: %v: %s", k, err, bytes.TrimSpace(out))
+			return fmt.Errorf("param set %s: %w: %s", k, err, bytes.TrimSpace(out))
 		}
 	}
 	return nil

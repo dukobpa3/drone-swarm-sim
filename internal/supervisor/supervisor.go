@@ -163,7 +163,10 @@ func (s *Supervisor) launch(i int, sp Spec) (*proc, error) {
 		if err != nil {
 			return nil, err
 		}
-		fmt.Fprintf(f, "\n==== %s %s %v\n", time.Now().Format(time.RFC3339), sp.Path, sp.Args)
+		if _, err := fmt.Fprintf(f, "\n==== %s %s %v\n", time.Now().Format(time.RFC3339), sp.Path, sp.Args); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("log %s: %w", sp.Log, err)
+		}
 		logFile = f
 	}
 
@@ -184,17 +187,11 @@ func (s *Supervisor) launch(i int, sp Spec) (*proc, error) {
 	copied := make(chan struct{})
 	go func() {
 		defer close(copied)
-		sc := bufio.NewScanner(pr)
-		sc.Buffer(make([]byte, 64*1024), 1024*1024)
-		for sc.Scan() {
-			line := sc.Text()
-			fmt.Fprintln(logFile, line)
-			s.line(sp.Name, i, line)
-		}
+		s.copyOutput(i, sp, pr, logFile)
 	}()
 	go func() {
 		p.err = cmd.Wait()
-		pw.Close()
+		pw.Close() //nolint:errcheck // io.PipeWriter.Close always returns nil
 		<-copied
 		logFile.Close()
 		close(p.done)
@@ -203,6 +200,24 @@ func (s *Supervisor) launch(i int, sp Spec) (*proc, error) {
 	s.procs = append(s.procs, p)
 	s.out.Unlock()
 	return p, nil
+}
+
+// copyOutput sends each line of a process's output to its log file and the
+// console. If the log file fails, that is reported once and the rest goes to
+// the console only: a broken log must not take a drone down.
+func (s *Supervisor) copyOutput(i int, sp Spec, r io.Reader, logFile io.Writer) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if logFile != nil {
+			if _, err := fmt.Fprintln(logFile, line); err != nil {
+				s.logf(sp.Name, i, "writing %s: %v; the rest of this output goes to the console only", sp.Log, err)
+				logFile = nil
+			}
+		}
+		s.line(sp.Name, i, line)
+	}
 }
 
 // stopAll stops processes in reverse start order, so drones go before the
@@ -232,7 +247,7 @@ var colors = []string{"36", "33", "32", "35", "34", "91", "96", "93", "92", "95"
 func (s *Supervisor) line(name string, i int, text string) {
 	s.out.Lock()
 	defer s.out.Unlock()
-	fmt.Fprintf(os.Stdout, "\x1b[%sm%-*s |\x1b[0m %s\n", colors[i%len(colors)], s.width, name, text)
+	fmt.Fprintf(os.Stdout, "\x1b[%sm%-*s |\x1b[0m %s\n", colors[i%len(colors)], s.width, name, text) //nolint:errcheck // the console is where errors are reported; a failed write there has nowhere to go
 }
 
 func (s *Supervisor) logf(name string, i int, format string, args ...any) {

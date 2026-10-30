@@ -174,6 +174,35 @@ func TestStopKillsProcessIgnoringSIGINT(t *testing.T) {
 	}
 }
 
+type brokenLog struct{ writes int }
+
+func (b *brokenLog) Write(p []byte) (int, error) {
+	b.writes++
+	return 0, errors.New("disk full")
+}
+
+func TestCopyOutputSurvivesBrokenLog(t *testing.T) {
+	s := newSupervisor()
+	log := &brokenLog{}
+	s.copyOutput(0, Spec{Name: "x", Log: "x.log"}, strings.NewReader("one\ntwo\nthree\n"), log)
+	if log.writes != 1 {
+		t.Fatalf("log written %d times after it failed, want 1", log.writes)
+	}
+}
+
+func TestLaunchFailsOnUnwritableLogDir(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sp := sh("x", "true")
+	sp.Log = filepath.Join(file, "x.log") // a file where a directory should be
+	if err := newSupervisor().Run(context.Background(), []Spec{sp}); err == nil {
+		t.Fatal("want an error for a log path under a file")
+	}
+}
+
 func TestExitText(t *testing.T) {
 	if got := exitText(nil); got != "exit status 0" {
 		t.Fatalf("exitText(nil) = %q", got)
