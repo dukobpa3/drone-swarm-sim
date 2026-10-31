@@ -20,9 +20,16 @@ The standard: <https://github.com/eggs-gd/.github/blob/main/docs/sonarqube.md>.
 2. **Push.** The pre-push hook runs `make sonar`: tests with coverage, the lint
    report, the scan of the pushed commit and the quality gate. The report goes to the
    server first; a red gate then stops the push. Read it, fix or answer, commit, push.
-3. **After the pull request is opened**, run `make sonar` once: until then the
-   analysis was of the branch, and the pull request's comment and check come from an
-   analysis made with the pull request's number (`scripts/sonar-scope` finds it).
+3. **After every push, when it has finished**, run `make sonar-publish`. The push's
+   analysis was made while the commit was not on GitHub yet, so the check (the status
+   on the commit) could not land on it: the plugin does not say so, the analysis just
+   succeeds. `make sonar-publish` sends the scan again, on the reports `make sonar` wrote
+   for this commit (no tests, no lint), now that GitHub knows the commit. Before the
+   pull request is opened that analysis is of the branch; the pull request's comment
+   and check come from an analysis made with its number (`scripts/sonar-scope` finds it),
+   so it matters most right after the pull request is opened. It stops if the commit is
+   not on the remote, if the tree has uncommitted changes, or if the reports are not of this
+   commit: then commit, push, or `make sonar` first.
 4. **Publish without waiting for the gate**, when a report has to reach the server
    whatever the gate says: `make sonar SONAR_GATE=false`.
 
