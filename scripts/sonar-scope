@@ -1,8 +1,11 @@
 #!/bin/sh
-# Prints the sonar-scanner arguments that say what this checkout is: nothing
-# for the main branch (origin/HEAD), the pull request when gh finds an open
-# one for the current branch, else the branch. Needs the community branch
-# plugin on the server for anything but the main branch.
+# Prints the sonar-scanner arguments that say what this checkout is: nothing for the
+# main branch (origin/HEAD), the pull request when gh finds an open one for the current
+# branch, else the branch. A branch named in SONAR_BRANCH_ONLY (default: develop, git
+# flow's integration branch, whose release PR stays open for long) is always a branch.
+# Needs the community branch plugin on the server for anything but the main branch.
+#
+# Canonical copy: eGGs-gd/.github, sonarqube/scripts/sonar-scope. Change it there.
 set -e
 
 branch=$(git rev-parse --abbrev-ref HEAD)
@@ -20,7 +23,7 @@ if [ "$branch" = "$main" ]; then
 	exit 0
 fi
 pr=""
-if command -v gh >/dev/null 2>&1; then
+if [ "$branch" != "${SONAR_BRANCH_ONLY:-develop}" ] && command -v gh >/dev/null 2>&1; then
 	pr=$(gh pr view "$branch" --json number,baseRefName,state \
 		--jq 'select(.state == "OPEN") | "\(.number) \(.baseRefName)"' 2>/dev/null) || pr=""
 fi
