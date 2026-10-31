@@ -95,7 +95,7 @@ func (e *Env) checkWorld() []string {
 	if e.Profile.World.Sim != "gz" {
 		problems = append(problems, "a group uses sim gz, but world.sim is not gz")
 	}
-	gzEnv, err := captureGz(e.Lab, e.Drones)
+	gzEnv, err := captureGz(e.Lab, e.Profile, e.Drones)
 	if err != nil {
 		return append(problems, err.Error())
 	}
@@ -146,8 +146,8 @@ func (e *Env) specs() ([]supervisor.Spec, error) {
 
 // captureGz builds the gz environment: the lab's activate script, plus PX4's
 // gz_env.sh when PX4 drones run in gz (it adds PX4's models, worlds and
-// plugins to the gz search paths).
-func captureGz(lab *config.Lab, drones []config.Drone) ([]string, error) {
+// plugins to the gz search paths), plus the profile's model paths.
+func captureGz(lab *config.Lab, prof *config.Profile, drones []config.Drone) ([]string, error) {
 	var scripts []string
 	if lab.Gz != nil && lab.Gz.Activate != "" {
 		scripts = append(scripts, lab.Gz.Activate)
@@ -167,6 +167,13 @@ func captureGz(lab *config.Lab, drones []config.Drone) ([]string, error) {
 	}
 	if _, err := envcap.LookPath(env, "gz"); err != nil {
 		return nil, fmt.Errorf("gz: %w (set gz.activate in %s)", err, lab.Path())
+	}
+	if len(prof.ModelPaths) > 0 {
+		paths := append([]string{}, prof.ModelPaths...)
+		if old := envcap.Lookup(env, "GZ_SIM_RESOURCE_PATH"); old != "" {
+			paths = append(paths, old)
+		}
+		env = envcap.With(env, "GZ_SIM_RESOURCE_PATH="+strings.Join(paths, ":"))
 	}
 	return env, nil
 }

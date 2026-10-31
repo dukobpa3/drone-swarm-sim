@@ -28,6 +28,9 @@ type Spec struct {
 	// Critical processes take everything down when they exit, e.g. the
 	// simulator server. Others only report that they exited.
 	Critical bool
+	// Before runs right before the process starts, e.g. to spawn its model.
+	// An error stops the swarm.
+	Before func(ctx context.Context) error
 	// Ready, if set, blocks the start of the next process until it returns.
 	Ready func(ctx context.Context) error
 	// After runs in the background once the process started, e.g. to push
@@ -100,9 +103,14 @@ func (s *Supervisor) pause(ctx context.Context) bool {
 	}
 }
 
-// startOne launches one process, watches it, runs its After hook and waits
-// until it is Ready.
+// startOne runs the Before hook, launches one process, watches it, runs its
+// After hook and waits until it is Ready.
 func (s *Supervisor) startOne(ctx context.Context, cancel context.CancelCauseFunc, i int, sp Spec) error {
+	if sp.Before != nil {
+		if err := sp.Before(ctx); err != nil {
+			return err
+		}
+	}
 	p, err := s.launch(i, sp)
 	if err != nil {
 		return err
