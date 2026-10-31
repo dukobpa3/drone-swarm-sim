@@ -28,7 +28,8 @@ The standard: <https://github.com/eggs-gd/.github/blob/main/docs/sonarqube.md>.
    pull request is opened that analysis is of the branch; the pull request's comment
    and check come from an analysis made with its number (`scripts/sonar-scope` finds it),
    so it matters most right after the pull request is opened. It stops if the commit is
-   not on the remote, or if the reports are not of this commit: then `make sonar` first.
+   not on the remote, if the tree has uncommitted changes, or if the reports are not of this
+   commit: then commit, push, or `make sonar` first.
 4. **Publish without waiting for the gate**, when a report has to reach the server
    whatever the gate says: `make sonar SONAR_GATE=false`.
 
