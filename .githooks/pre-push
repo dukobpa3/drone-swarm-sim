@@ -13,7 +13,11 @@
 COVERED='^(cmd|internal)/|^(Makefile|sonar-project\.properties|\.golangci\.yml)$'
 
 # --- sonar:begin
+# The pushed refs are an argument ("<local ref> <local oid> <remote ref> <remote oid>", one
+# line per ref: what git sends a pre-push hook on stdin), so a hook that reads them itself
+# can pass them on.
 sonar_on_push() {
+	refs=$1
 	env=.env
 	[ -f "$env" ] || env="$(git rev-parse --path-format=absolute --git-common-dir)/../.env"
 	set -a; [ ! -f "$env" ] || . "$env"; set +a
@@ -26,8 +30,8 @@ sonar_on_push() {
 	zero=0000000000000000000000000000000000000000
 	head=$(git rev-parse HEAD)
 	changed=""
-	# stdin: <local ref> <local oid> <remote ref> <remote oid>, one line per pushed ref
 	while read -r local_ref local_oid remote_ref remote_oid; do
+		[ -n "$local_ref" ] || continue
 		[ "$local_oid" = "$zero" ] && continue
 		if [ "$local_oid" != "$head" ]; then
 			echo "pre-push: $local_ref is not the checked-out commit, SonarQube skipped (it analyses the checkout)" >&2
@@ -45,7 +49,9 @@ sonar_on_push() {
 			changed="$changed
 $(git diff --name-only "$base" "$local_oid")"
 		fi
-	done
+	done <<REFS
+$refs
+REFS
 	echo "$changed" | grep -qE "$COVERED|^\.analyse$" || return 0
 
 	if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
@@ -58,5 +64,6 @@ $(git diff --name-only "$base" "$local_oid")"
 		return 1
 	}
 }
-sonar_on_push || exit 1
 # --- sonar:end
+
+sonar_on_push "$(cat)" || exit 1

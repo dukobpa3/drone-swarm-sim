@@ -19,7 +19,7 @@ if command -v golangci-lint >/dev/null 2>&1; then
 	modules=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go' | while read -r f; do
 		d=$(dirname "$f")
 		while [ "$d" != . ] && [ ! -f "$d/go.mod" ]; do d=$(dirname "$d"); done
-		[ -f "$d/go.mod" ] && echo "$d"
+		if [ -f "$d/go.mod" ]; then echo "$d"; fi
 	done | sort -u)
 	for m in $modules; do
 		echo "pre-commit: golangci-lint in $m"
