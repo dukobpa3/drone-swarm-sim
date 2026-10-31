@@ -97,7 +97,13 @@ type Drone struct {
 	X, Y float64
 }
 
+// LoadProfile reads a profile. Its paths become absolute: processes such as gz
+// run in their own directories.
 func LoadProfile(path string) (*Profile, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	var p Profile
 	if err := loadYAML(path, &p); err != nil {
 		return nil, err

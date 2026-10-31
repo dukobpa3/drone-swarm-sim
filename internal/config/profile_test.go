@@ -73,6 +73,36 @@ func TestLoadProfileModelPaths(t *testing.T) {
 	}
 }
 
+func TestLoadRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "models"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProfile(t, dir, "world: { name: worlds/field.sdf }\ngroups: []\n")
+	if err := os.WriteFile(filepath.Join(dir, "lab.yaml"), []byte("run_dir: run\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	p, err := LoadProfile(filepath.Join("profiles", "swarm.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.ModelPaths) != 1 || !filepath.IsAbs(p.ModelPaths[0]) {
+		t.Errorf("model paths %v are not absolute", p.ModelPaths)
+	}
+	if w := p.WorldPath("/px4/worlds"); !filepath.IsAbs(w) {
+		t.Errorf("world path %q is not absolute", w)
+	}
+	lab, err := LoadLab("lab.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(lab.RunDir) {
+		t.Errorf("run dir %q is not absolute", lab.RunDir)
+	}
+}
+
 func TestDronesLayout(t *testing.T) {
 	p := &Profile{
 		Layout: Layout{Kind: "grid", Spacing: 2},
