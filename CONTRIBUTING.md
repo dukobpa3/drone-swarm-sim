@@ -34,8 +34,7 @@ Keep it private: `chmod 600 .env`.
   scan of the staged files, when the `sonar` CLI is installed); a finding stops
   the commit, nothing goes to the server. **pre-push** runs `make sonar` when
   code under `cmd/` or `internal/` changed: the report of the pushed commit goes
-  to the server, and a red gate stops the push. Once a pull request is open, run
-  `make sonar` once more so the server analyzes it as that pull request. Skip a
+  to the server, and a red gate stops the push. After every push, once it has finished, run `make sonar-publish`: the push's analysis was made while GitHub did not know the commit yet, so the pull request's check could not land on it; this sends the scan again, on the same reports. Skip a
   hook for one commit or push with `--no-verify`.
 - `sonar list issues -p drone-swarm-sim --format table` shows what the last scan found.
 
