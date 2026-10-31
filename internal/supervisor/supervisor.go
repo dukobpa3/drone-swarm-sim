@@ -77,41 +77,61 @@ func (s *Supervisor) Run(ctx context.Context, specs []Spec) error {
 
 func (s *Supervisor) start(ctx context.Context, cancel context.CancelCauseFunc, specs []Spec) error {
 	for i, sp := range specs {
-		if i > 0 && s.Stagger > 0 {
-			select {
-			case <-time.After(s.Stagger):
-			case <-ctx.Done():
-				return nil
-			}
+		if i > 0 && !s.pause(ctx) {
+			return nil
 		}
-		p, err := s.launch(i, sp)
-		if err != nil {
+		if err := s.startOne(ctx, cancel, i, sp); err != nil {
 			return fmt.Errorf("%s: %w", sp.Name, err)
-		}
-		go func() {
-			<-p.done
-			if ctx.Err() != nil {
-				return
-			}
-			s.logf(sp.Name, i, "exited: %v", exitText(p.err))
-			if sp.Critical {
-				cancel(fmt.Errorf("%s exited: %v", sp.Name, exitText(p.err)))
-			}
-		}()
-		if sp.After != nil {
-			go func() {
-				if err := sp.After(ctx); err != nil && ctx.Err() == nil {
-					s.logf(sp.Name, i, "error: %v", err)
-				}
-			}()
-		}
-		if sp.Ready != nil {
-			if err := waitReady(ctx, p, sp.Ready); err != nil {
-				return fmt.Errorf("%s: %w", sp.Name, err)
-			}
 		}
 	}
 	return nil
+}
+
+// pause waits Stagger between two starts; false means ctx was cancelled.
+func (s *Supervisor) pause(ctx context.Context) bool {
+	if s.Stagger <= 0 {
+		return true
+	}
+	select {
+	case <-time.After(s.Stagger):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// startOne launches one process, watches it, runs its After hook and waits
+// until it is Ready.
+func (s *Supervisor) startOne(ctx context.Context, cancel context.CancelCauseFunc, i int, sp Spec) error {
+	p, err := s.launch(i, sp)
+	if err != nil {
+		return err
+	}
+	go s.watch(ctx, cancel, i, p)
+	if sp.After != nil {
+		go func() {
+			if err := sp.After(ctx); err != nil && ctx.Err() == nil {
+				s.logf(sp.Name, i, "error: %v", err)
+			}
+		}()
+	}
+	if sp.Ready == nil {
+		return nil
+	}
+	return waitReady(ctx, p, sp.Ready)
+}
+
+// watch reports a process that exits while the swarm runs, and takes the
+// swarm down if the process is critical.
+func (s *Supervisor) watch(ctx context.Context, cancel context.CancelCauseFunc, i int, p *proc) {
+	<-p.done
+	if ctx.Err() != nil {
+		return
+	}
+	s.logf(p.spec.Name, i, "exited: %v", exitText(p.err))
+	if p.spec.Critical {
+		cancel(fmt.Errorf("%s exited: %v", p.spec.Name, exitText(p.err)))
+	}
 }
 
 // waitReady fails early if the process dies while it is being waited on.
@@ -143,7 +163,10 @@ func (s *Supervisor) launch(i int, sp Spec) (*proc, error) {
 		if err != nil {
 			return nil, err
 		}
-		fmt.Fprintf(f, "\n==== %s %s %v\n", time.Now().Format(time.RFC3339), sp.Path, sp.Args)
+		if _, err := fmt.Fprintf(f, "\n==== %s %s %v\n", time.Now().Format(time.RFC3339), sp.Path, sp.Args); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("log %s: %w", sp.Log, err)
+		}
 		logFile = f
 	}
 
@@ -164,23 +187,37 @@ func (s *Supervisor) launch(i int, sp Spec) (*proc, error) {
 	copied := make(chan struct{})
 	go func() {
 		defer close(copied)
-		sc := bufio.NewScanner(pr)
-		sc.Buffer(make([]byte, 64*1024), 1024*1024)
-		for sc.Scan() {
-			line := sc.Text()
-			fmt.Fprintln(logFile, line)
-			s.line(sp.Name, i, line)
-		}
+		s.copyOutput(i, sp, pr, logFile)
 	}()
 	go func() {
 		p.err = cmd.Wait()
-		pw.Close()
+		pw.Close() //nolint:errcheck // io.PipeWriter.Close always returns nil
 		<-copied
 		logFile.Close()
 		close(p.done)
 	}()
+	s.out.Lock()
 	s.procs = append(s.procs, p)
+	s.out.Unlock()
 	return p, nil
+}
+
+// copyOutput sends each line of a process's output to its log file and the
+// console. If the log file fails, that is reported once and the rest goes to
+// the console only: a broken log must not take a drone down.
+func (s *Supervisor) copyOutput(i int, sp Spec, r io.Reader, logFile io.Writer) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if logFile != nil {
+			if _, err := fmt.Fprintln(logFile, line); err != nil {
+				s.logf(sp.Name, i, "writing %s: %v; the rest of this output goes to the console only", sp.Log, err)
+				logFile = nil
+			}
+		}
+		s.line(sp.Name, i, line)
+	}
 }
 
 // stopAll stops processes in reverse start order, so drones go before the
@@ -210,7 +247,7 @@ var colors = []string{"36", "33", "32", "35", "34", "91", "96", "93", "92", "95"
 func (s *Supervisor) line(name string, i int, text string) {
 	s.out.Lock()
 	defer s.out.Unlock()
-	fmt.Fprintf(os.Stdout, "\x1b[%sm%-*s |\x1b[0m %s\n", colors[i%len(colors)], s.width, name, text)
+	fmt.Fprintf(os.Stdout, "\x1b[%sm%-*s |\x1b[0m %s\n", colors[i%len(colors)], s.width, name, text) //nolint:errcheck // the console is where errors are reported; a failed write there has nowhere to go
 }
 
 func (s *Supervisor) logf(name string, i int, format string, args ...any) {

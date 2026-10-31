@@ -6,8 +6,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -58,7 +60,9 @@ func run(labFlag, command, profilePath string) error {
 		return err
 	}
 	drones, _ := prof.Drones()
-	printPlan(lab, prof, drones, specs)
+	if err := printPlan(os.Stdout, lab, prof, drones, specs); err != nil {
+		return fmt.Errorf("printing the plan: %w", err)
+	}
 	if command == "check" {
 		return nil
 	}
@@ -69,19 +73,37 @@ func run(labFlag, command, profilePath string) error {
 	return sup.Run(ctx, specs)
 }
 
-func printPlan(lab *config.Lab, prof *config.Profile, drones []config.Drone, specs []supervisor.Spec) {
-	fmt.Printf("lab:     %s\nprofile: %s (%s)\nrun dir: %s/%s\n\n", lab.Path(), prof.Path(), prof.Name, lab.RunDir, prof.Name)
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "DRONE\tAUTOPILOT\tSIM\tSYSID\tPOS\tMAVLINK")
+func printPlan(out io.Writer, lab *config.Lab, prof *config.Profile, drones []config.Drone, specs []supervisor.Spec) error {
+	p := &printer{w: out}
+	p.printf("lab:     %s\nprofile: %s (%s)\nrun dir: %s/%s\n\n", lab.Path(), prof.Path(), prof.Name, lab.RunDir, prof.Name)
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	t := &printer{w: tw}
+	t.printf("DRONE\tAUTOPILOT\tSIM\tSYSID\tPOS\tMAVLINK\n")
 	for _, d := range drones {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%g,%g\t%s\n", d.Name, d.Group.Autopilot, d.Group.Sim, d.SysID, d.X, d.Y, ports(d))
+		t.printf("%s\t%s\t%s\t%d\t%g,%g\t%s\n", d.Name, d.Group.Autopilot, d.Group.Sim, d.SysID, d.X, d.Y, ports(d))
 	}
-	w.Flush()
-	fmt.Println()
+	if err := errors.Join(p.err, t.err, tw.Flush()); err != nil {
+		return err
+	}
+	p.printf("\n")
 	for _, s := range specs {
-		fmt.Printf("  %-12s %s %s\n", s.Name, s.Path, strings.Join(s.Args, " "))
+		p.printf("  %-12s %s %s\n", s.Name, s.Path, strings.Join(s.Args, " "))
 	}
-	fmt.Println()
+	p.printf("\n")
+	return p.err
+}
+
+// printer keeps the first write error and skips writes after it, so a
+// sequence of prints is checked once at the end.
+type printer struct {
+	w   io.Writer
+	err error
+}
+
+func (p *printer) printf(format string, args ...any) {
+	if p.err == nil {
+		_, p.err = fmt.Fprintf(p.w, format, args...)
+	}
 }
 
 func ports(d config.Drone) string {

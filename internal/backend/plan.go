@@ -63,58 +63,79 @@ func Plan(lab *config.Lab, prof *config.Profile) ([]supervisor.Spec, error) {
 		env.Home = *prof.World.Home
 	}
 
+	problems := append(env.checkWorld(), env.checkGroups()...)
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("%s:\n  - %s", prof.Path(), strings.Join(problems, "\n  - "))
+	}
+	return env.specs()
+}
+
+// usesGz says whether any drone runs in the shared gz world.
+func (e *Env) usesGz() bool {
+	for _, d := range e.Drones {
+		if d.Group.Sim == "gz" {
+			return true
+		}
+	}
+	return false
+}
+
+// checkWorld validates world.sim and, when gz is used, captures its
+// environment into e.Gz.
+func (e *Env) checkWorld() []string {
 	var problems []string
-	switch prof.World.Sim {
+	switch e.Profile.World.Sim {
 	case "gz", "none":
 	default:
-		problems = append(problems, fmt.Sprintf("world.sim %q: use gz or none", prof.World.Sim))
+		problems = append(problems, fmt.Sprintf("world.sim %q: use gz or none", e.Profile.World.Sim))
 	}
-	useGz := false
-	for _, d := range drones {
-		if d.Group.Sim == "gz" {
-			useGz = true
-		}
+	if !e.usesGz() {
+		return problems
 	}
-	if useGz && prof.World.Sim != "gz" {
+	if e.Profile.World.Sim != "gz" {
 		problems = append(problems, "a group uses sim gz, but world.sim is not gz")
 	}
-	if useGz {
-		if gzEnv, err := captureGz(lab, drones); err != nil {
-			problems = append(problems, err.Error())
-		} else {
-			env.Gz = gzEnv
-		}
+	gzEnv, err := captureGz(e.Lab, e.Drones)
+	if err != nil {
+		return append(problems, err.Error())
 	}
+	e.Gz = gzEnv
+	return problems
+}
 
+// checkGroups asks each group's backend what is missing, once per group.
+func (e *Env) checkGroups() []string {
+	var problems []string
 	checked := map[*config.Group]bool{}
-	for _, d := range drones {
+	for _, d := range e.Drones {
+		if checked[d.Group] {
+			continue
+		}
+		checked[d.Group] = true
 		ap, ok := autopilots[d.Group.Autopilot]
 		if !ok {
 			problems = append(problems, fmt.Sprintf("group %q: autopilot %q: use px4, ardupilot or exec", d.Group.Name, d.Group.Autopilot))
 			continue
 		}
-		if checked[d.Group] {
-			continue
-		}
-		checked[d.Group] = true
-		if err := ap.Check(env, d); err != nil {
+		if err := ap.Check(e, d); err != nil {
 			problems = append(problems, fmt.Sprintf("group %q: %v", d.Group.Name, err))
 		}
 	}
-	if len(problems) > 0 {
-		return nil, fmt.Errorf("%s:\n  - %s", prof.Path(), strings.Join(problems, "\n  - "))
-	}
+	return problems
+}
 
+// specs returns the world's processes, then each drone's, in start order.
+func (e *Env) specs() ([]supervisor.Spec, error) {
 	var specs []supervisor.Spec
-	if useGz {
-		world, err := gzWorld(env)
+	if e.usesGz() {
+		world, err := gzWorld(e)
 		if err != nil {
 			return nil, err
 		}
 		specs = append(specs, world...)
 	}
-	for _, d := range drones {
-		s, err := autopilots[d.Group.Autopilot].Specs(env, d)
+	for _, d := range e.Drones {
+		s, err := autopilots[d.Group.Autopilot].Specs(e, d)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", d.Name, err)
 		}
@@ -145,7 +166,7 @@ func captureGz(lab *config.Lab, drones []config.Drone) ([]string, error) {
 		return nil, err
 	}
 	if _, err := envcap.LookPath(env, "gz"); err != nil {
-		return nil, fmt.Errorf("gz: %v (set gz.activate in %s)", err, lab.Path())
+		return nil, fmt.Errorf("gz: %w (set gz.activate in %s)", err, lab.Path())
 	}
 	return env, nil
 }

@@ -1,1 +1,5 @@
 bin/
+.env
+.scannerwork/
+coverage.out
+golangci-lint.xml

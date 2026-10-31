@@ -3,6 +3,9 @@
 `swarmsim` runs a simulated drone swarm from one profile in one console: the
 gz world, then every drone, with all output merged and prefixed per process.
 Ctrl+C stops everything; if the gz server dies, everything stops with an error.
+If a PX4 startup hangs (90 s), swarmsim stops the swarm and prints the last
+lines of that drone's log; the `Startup script returned with return value: 2`
+PX4 logs afterwards comes from that stop, not from the hang.
 
 ```bash
 go build -o bin/swarmsim ./cmd/swarmsim
