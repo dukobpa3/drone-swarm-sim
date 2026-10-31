@@ -63,6 +63,8 @@ REFS
 		echo "  Read it: sonar list issues. Fix or answer on the line, commit, push again." >&2
 		return 1
 	}
+	echo "pre-push: the analysis is on the server. When the push has finished, run: make sonar-publish" >&2
+	echo "  (GitHub does not know this commit yet, so the check cannot land on it until the analysis is sent again)" >&2
 }
 # --- sonar:end
 
