@@ -54,12 +54,8 @@ in `<run_dir>/<profile>/logs/`.
 extra defaults file for ArduPilot, which means values saved in a drone's
 eeprom win over them.
 
-## Use in a monorepo
+## Where it is developed
 
-This repo is meant to be vendored with `git subtree`:
-
-```bash
-git subtree add --prefix=sim git@github.com:dukobpa3/drone-swarm-sim.git master --squash
-git subtree pull --prefix=sim git@github.com:dukobpa3/drone-swarm-sim.git master --squash
-git subtree push --prefix=sim git@github.com:dukobpa3/drone-swarm-sim.git master
-```
+In `sim/` of [dukobpa3/drone-swarm](https://github.com/dukobpa3/drone-swarm).
+github.com/dukobpa3/drone-swarm-sim is a mirror of that directory, updated with
+`make sim-push` from the monorepo; pull requests go to the monorepo.
