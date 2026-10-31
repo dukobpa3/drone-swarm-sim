@@ -27,8 +27,17 @@ Keep it private: `chmod 600 .env`.
   a red gate makes it fail. On the main branch it updates the project; on
   another branch it is analyzed as that branch's open pull request (found
   with `gh`), or as a branch when there is none. Branches and pull requests
-  need the community branch plugin on the server.
-- `git config core.hooksPath .githooks` enables a pre-commit hook that runs
-  `make sonar` when Go code under `cmd/` or `internal/` is staged. Skip it
-  for one commit with `git commit --no-verify`.
-- `sonar list issues --format table` shows what the last scan found.
+  need the community branch plugin on the server. `make sonar SONAR_GATE=false`
+  sends the report without waiting for the gate.
+- `git config core.hooksPath .githooks` enables two hooks. **pre-commit** is the
+  local gate: golangci-lint on the Go modules with staged files (and the secrets
+  scan of the staged files, when the `sonar` CLI is installed); a finding stops
+  the commit, nothing goes to the server. **pre-push** runs `make sonar` when
+  code under `cmd/` or `internal/` changed: the report of the pushed commit goes
+  to the server, and a red gate stops the push. Once a pull request is open, run
+  `make sonar` once more so the server analyzes it as that pull request. Skip a
+  hook for one commit or push with `--no-verify`.
+- `sonar list issues -p drone-swarm-sim --format table` shows what the last scan found.
+
+The same setup, and the reasons for it, are described in the organization's
+[SonarQube standard](https://github.com/eggs-gd/.github/blob/main/docs/sonarqube.md).

@@ -1,0 +1,62 @@
+#!/bin/sh
+# SonarQube on push: the analysis of the pushed commit goes to the server (as the branch,
+# or as the pull request when one is open: scripts/sonar-scope), and a red quality gate
+# stops the push. The report is on the server either way, so the findings can be read
+# (sonar list issues) and answered. Does nothing without SONAR_HOST_URL and SONAR_TOKEN
+# (the environment or .env; a worktree uses the main checkout's).
+# Enable per checkout: git config core.hooksPath .githooks
+# Skip once, and say so in the message: git push --no-verify
+#
+# COVERED is the repo's own: the paths whose change is worth an analysis.
+# The part between the markers is canonical: eggs-gd/.github, sonarqube/hooks/pre-push.
+
+COVERED='^(cmd|internal)/|^(Makefile|sonar-project\.properties|\.golangci\.yml)$'
+
+# --- sonar:begin
+sonar_on_push() {
+	env=.env
+	[ -f "$env" ] || env="$(git rev-parse --path-format=absolute --git-common-dir)/../.env"
+	set -a; [ ! -f "$env" ] || . "$env"; set +a
+	[ -n "${SONAR_HOST_URL:-}" ] && [ -n "${SONAR_TOKEN:-}" ] || return 0
+	if ! command -v sonar-scanner >/dev/null 2>&1; then
+		echo "pre-push: sonar-scanner is not installed, SonarQube skipped" >&2
+		return 0
+	fi
+
+	zero=0000000000000000000000000000000000000000
+	head=$(git rev-parse HEAD)
+	changed=""
+	# stdin: <local ref> <local oid> <remote ref> <remote oid>, one line per pushed ref
+	while read -r local_ref local_oid remote_ref remote_oid; do
+		[ "$local_oid" = "$zero" ] && continue
+		if [ "$local_oid" != "$head" ]; then
+			echo "pre-push: $local_ref is not the checked-out commit, SonarQube skipped (it analyses the checkout)" >&2
+			return 0
+		fi
+		if [ "$remote_oid" = "$zero" ]; then
+			base=$(git merge-base "$local_oid" origin/HEAD 2>/dev/null || true)
+		else
+			base=$remote_oid
+		fi
+		if [ -z "$base" ]; then
+			changed="$changed
+.analyse"
+		else
+			changed="$changed
+$(git diff --name-only "$base" "$local_oid")"
+		fi
+	done
+	echo "$changed" | grep -qE "$COVERED|^\.analyse$" || return 0
+
+	if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+		echo "pre-push: uncommitted changes, SonarQube skipped (it would analyse them)" >&2
+		return 0
+	fi
+	make sonar || {
+		echo "pre-push: the SonarQube analysis or its quality gate failed; the report is on the server." >&2
+		echo "  Read it: sonar list issues. Fix or answer on the line, commit, push again." >&2
+		return 1
+	}
+}
+sonar_on_push || exit 1
+# --- sonar:end
