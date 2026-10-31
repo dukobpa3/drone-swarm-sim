@@ -10,7 +10,7 @@
 # The part between the markers is canonical: eggs-gd/.github, sonarqube/hooks/pre-commit.
 
 # --- sonar:begin
-env=.env
+env=./.env
 [ -f "$env" ] || env="$(git rev-parse --path-format=absolute --git-common-dir)/../.env"
 set -a; [ ! -f "$env" ] || . "$env"; set +a
 if [ -n "${SONAR_HOST_URL:-}" ] && [ -n "${SONAR_TOKEN:-}" ] && command -v sonar >/dev/null 2>&1; then

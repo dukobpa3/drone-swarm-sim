@@ -18,7 +18,7 @@ lint:
 SONAR_GATE ?= true
 
 sonar:
-	@env=.env; [ -f $$env ] || env="$$(git rev-parse --path-format=absolute --git-common-dir)/../.env"; \
+	@env=./.env; [ -f $$env ] || env="$$(git rev-parse --path-format=absolute --git-common-dir)/../.env"; \
 	set -a; [ ! -f "$$env" ] || . "$$env"; set +a; \
 	test -n "$$SONAR_HOST_URL" && test -n "$$SONAR_TOKEN" || { echo 'sonar: set SONAR_HOST_URL and SONAR_TOKEN (.env)' >&2; exit 1; }; \
 	scope=$$(scripts/sonar-scope) || exit 1; \
