@@ -145,21 +145,21 @@ func (e *Env) specs() ([]supervisor.Spec, error) {
 }
 
 // captureGz builds the gz environment: the lab's activate script, plus PX4's
-// gz_env.sh when PX4 drones run in gz (it adds PX4's models, worlds and
-// plugins to the gz search paths), plus the profile's model paths.
+// gz_env.sh when PX4 or ArduPilot drones run in gz (it adds PX4's models,
+// worlds and plugins to the gz search paths, and the server config with the
+// system plugins PX4's worlds leave out), plus ardupilot_gazebo's plugin and
+// models for ArduPilot drones, plus the profile's model paths.
 func captureGz(lab *config.Lab, prof *config.Profile, drones []config.Drone) ([]string, error) {
 	var scripts []string
 	if lab.Gz != nil && lab.Gz.Activate != "" {
 		scripts = append(scripts, lab.Gz.Activate)
 	}
-	for _, d := range drones {
-		if d.Group.Autopilot == "px4" && d.Group.Sim == "gz" {
-			if lab.PX4 == nil {
-				return nil, fmt.Errorf("px4 drones need a px4 section in %s", lab.Path())
-			}
-			scripts = append(scripts, filepath.Join(lab.PX4.Build, "gz_env.sh"))
-			break
-		}
+	px4Gz, apGz := inGz(drones, "px4"), inGz(drones, "ardupilot")
+	if px4Gz && lab.PX4 == nil {
+		return nil, fmt.Errorf("px4 drones need a px4 section in %s", lab.Path())
+	}
+	if lab.PX4 != nil && (px4Gz || apGz) {
+		scripts = append(scripts, filepath.Join(lab.PX4.Build, "gz_env.sh"))
 	}
 	env, err := envcap.Capture(scripts...)
 	if err != nil {
@@ -168,14 +168,44 @@ func captureGz(lab *config.Lab, prof *config.Profile, drones []config.Drone) ([]
 	if _, err := envcap.LookPath(env, "gz"); err != nil {
 		return nil, fmt.Errorf("gz: %w (set gz.activate in %s)", err, lab.Path())
 	}
-	if len(prof.ModelPaths) > 0 {
-		paths := append([]string{}, prof.ModelPaths...)
-		if old := envcap.Lookup(env, "GZ_SIM_RESOURCE_PATH"); old != "" {
-			paths = append(paths, old)
+	env = prependPath(env, "GZ_SIM_RESOURCE_PATH", prof.ModelPaths...)
+	if apGz {
+		if lab.ArduPilot == nil || lab.ArduPilot.Gazebo == "" {
+			return nil, fmt.Errorf("ardupilot drones in gz need ardupilot.gazebo (the ardupilot_gazebo checkout) in %s", lab.Path())
 		}
-		env = envcap.With(env, "GZ_SIM_RESOURCE_PATH="+strings.Join(paths, ":"))
+		env = prependPath(env, "GZ_SIM_SYSTEM_PLUGIN_PATH", filepath.Join(lab.ArduPilot.Gazebo, "build"))
+		env = appendPath(env, "GZ_SIM_RESOURCE_PATH", filepath.Join(lab.ArduPilot.Gazebo, "models"))
 	}
 	return env, nil
+}
+
+// prependPath puts dirs before a search path variable's value.
+func prependPath(env []string, name string, dirs ...string) []string {
+	if len(dirs) == 0 {
+		return env
+	}
+	if old := envcap.Lookup(env, name); old != "" {
+		dirs = append(dirs, old)
+	}
+	return envcap.With(env, name+"="+strings.Join(dirs, ":"))
+}
+
+// appendPath puts dirs after a search path variable's value.
+func appendPath(env []string, name string, dirs ...string) []string {
+	if old := envcap.Lookup(env, name); old != "" {
+		dirs = append([]string{old}, dirs...)
+	}
+	return envcap.With(env, name+"="+strings.Join(dirs, ":"))
+}
+
+// inGz says whether drones of an autopilot run in the shared gz world.
+func inGz(drones []config.Drone, autopilot string) bool {
+	for _, d := range drones {
+		if d.Group.Autopilot == autopilot && d.Group.Sim == "gz" {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Env) droneDir(d config.Drone) string { return filepath.Join(e.Dir, d.Name) }

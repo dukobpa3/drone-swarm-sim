@@ -1,0 +1,20 @@
+# Four ArduPilot iris quads in one gz world, the same world as px4-4x-gz.
+# swarmsim spawns each iris with the port of its SITL instance; SITL takes
+# the world's origin as its home, so GPS matches gz.
+name: ap-4x-gz
+
+world:
+  sim: gz
+  name: baylands
+  gui: true
+
+layout:
+  kind: grid
+  spacing: 2
+
+groups:
+  - name: iris
+    autopilot: ardupilot
+    vehicle: copter
+    model: iris_with_ardupilot
+    count: 4

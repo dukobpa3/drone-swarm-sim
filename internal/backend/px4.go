@@ -224,7 +224,7 @@ func fileSize(path string) int64 {
 var errLogTimeout = errors.New("timed out")
 
 // waitLogLine polls a log file until ok appears after offset, and fails as
-// soon as a line containing fail appears. On timeout the error wraps
+// soon as a line containing fail appears (unless fail is empty). On timeout the error wraps
 // errLogTimeout and carries the last lines of the log, so it shows where the
 // process stopped.
 func waitLogLine(ctx context.Context, path string, offset int64, ok, fail string, timeout time.Duration) error {
@@ -235,7 +235,7 @@ func waitLogLine(ctx context.Context, path string, offset int64, ok, fail string
 		if bytes.Contains(seen, []byte(ok)) {
 			return nil
 		}
-		if line := lineWith(seen, fail); line != "" {
+		if line := lineWith(seen, fail); fail != "" && line != "" {
 			return fmt.Errorf("%s (see %s)", line, path)
 		}
 		select {

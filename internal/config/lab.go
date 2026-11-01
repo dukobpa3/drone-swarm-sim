@@ -43,6 +43,9 @@ type LabArduPilot struct {
 	Root string `yaml:"root"`
 	// Bin is the directory with arducopter, arduplane, ardurover...
 	Bin string `yaml:"bin"`
+	// Gazebo is the ardupilot_gazebo checkout, built in its build/ directory:
+	// the plugin that connects ArduPilot SITL to gz, and its models.
+	Gazebo string `yaml:"gazebo"`
 }
 
 func (l *Lab) Path() string { return l.path }
@@ -104,6 +107,7 @@ func LoadLab(path string) (*Lab, error) {
 	if lab.ArduPilot != nil {
 		lab.ArduPilot.Root = expand(base, lab.ArduPilot.Root)
 		lab.ArduPilot.Bin = expand(base, lab.ArduPilot.Bin)
+		lab.ArduPilot.Gazebo = expand(base, lab.ArduPilot.Gazebo)
 	}
 	return &lab, nil
 }

@@ -19,3 +19,6 @@ ardupilot:
   root: ardupilot
   # Directory with arducopter, arduplane, ardurover (./waf configure --board sitl).
   bin: ardupilot/build/sitl/bin
+  # ardupilot_gazebo checkout, built in build/ against the gz above: needed for
+  # ardupilot drones in gz.
+  gazebo: ardupilot_gazebo

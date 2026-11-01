@@ -86,17 +86,23 @@ func findModel(env *Env, name string) (string, error) {
 	return "", fmt.Errorf("model %q not found in %s", name, strings.Join(tried, ", "))
 }
 
-// firstLink returns the name of the first link of the model's SDF.
-func firstLink(dir string) (string, error) {
+// modelFile is the model's SDF file named in its model.config: the last
+// <sdf>, the newest version.
+func modelFile(dir string) string {
 	var cfg struct {
 		SDF []string `xml:"sdf"`
 	}
-	file := "model.sdf"
 	if data, err := os.ReadFile(filepath.Join(dir, "model.config")); err == nil {
 		if xml.Unmarshal(data, &cfg) == nil && len(cfg.SDF) > 0 {
-			file = strings.TrimSpace(cfg.SDF[len(cfg.SDF)-1])
+			return strings.TrimSpace(cfg.SDF[len(cfg.SDF)-1])
 		}
 	}
+	return "model.sdf"
+}
+
+// firstLink returns the name of the first link of the model's SDF.
+func firstLink(dir string) (string, error) {
+	file := modelFile(dir)
 	data, err := os.ReadFile(filepath.Join(dir, file))
 	if err != nil {
 		return "", err

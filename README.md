@@ -18,9 +18,9 @@ or `go install github.com/dukobpa3/drone-swarm-sim/cmd/swarmsim@latest`.
 ## Two files
 
 - **lab.yaml** says what is installed on this machine (gz, PX4 build,
-  ArduPilot build). It is not in this repo: copy `lab.example.yaml` next to
-  your checkouts. swarmsim looks for `--lab`, then `$SWARM_LAB`, then
-  `lab.yaml` in the current directory or a parent, then
+  ArduPilot build, ardupilot_gazebo). It is not in this repo: copy
+  `lab.example.yaml` next to your checkouts. swarmsim looks for `--lab`, then
+  `$SWARM_LAB`, then `lab.yaml` in the current directory or a parent, then
   `~/.config/swarmsim/lab.yaml`.
 - **profiles/*.yaml** say what to run, with no paths into the lab.
 
@@ -34,12 +34,36 @@ missing.
 |---|---|---|
 | `px4` | `gz` | joins the shared world (`PX4_GZ_STANDALONE`), `model: gz_x500` etc. |
 | `px4` | `sih` | PX4's own physics, `model: sihsim_quadx` |
+| `ardupilot` | `gz` | joins the shared world, `model: iris_with_ardupilot` (default) or another ardupilot_gazebo model swarmsim knows the frame of |
 | `ardupilot` | `builtin` | `vehicle: copter\|plane\|rover`; not run end to end yet |
 | `exec` | any | any command per drone, Go templates over `.Name .Index .SysID .X .Y .Lat .Lon .Alt .Dir .World` |
 
 The gz server is started by swarmsim, not by the first PX4, so no drone is
 special. gz drones keep the world's own origin unless the profile sets
 `world.home`.
+
+ArduPilot in gz differs from PX4 in what swarmsim does for it:
+
+- PX4 spawns its own model; ArduPilot does not. ardupilot_gazebo's plugin
+  inside the model talks JSON over UDP with SITL on port 9002+10·instance, so
+  swarmsim writes each drone a copy of the model with its port
+  (`<run_dir>/<profile>/<drone>/model.sdf`) and spawns it before SITL starts.
+- SITL takes its frame from `--model`, which is `JSON` here, so swarmsim passes
+  the model's frame parameters (`gazebo-iris.parm` for the iris).
+- SITL's home is the world's origin (`world.home`, else the world's
+  `spherical_coordinates`); gz places the drone, and GPS follows from both.
+- ArduPilot runs one loop per physics step and copter will not arm below
+  400 Hz, so with ArduPilot drones swarmsim sets the world's step to 1 ms.
+  PX4's worlds without system plugins get them from PX4's server config, so
+  `px4` in lab.yaml is needed for them even without PX4 drones.
+- SITL exits silently (`exit(1)`, nothing in its log) when the process that
+  started it exits: it watches its parent so sim_vehicle.py's children do not
+  outlive it. swarmsim stays up, but a SITL started by hand from a script that
+  then returns dies a moment later, and in lockstep gz then waits for it.
+- At 1 ms, ardupilot_gazebo's iris collision mesh slows gz to a tenth of real
+  time (four iris in baylands). Make it a box with the mesh's bounds: in
+  iris_with_standoffs, `base_collision` becomes
+  `<box><size>0.304 0.473 0.09</size></box>` at pose `-0.008 0.002 -0.006`.
 
 Each drone gets a swarm-wide index; MAVLink sysid is index + 1. PX4 ports come
 from the index (GCS 18570+i → 14550, API 14580+i → 14540+i), ArduPilot sends
