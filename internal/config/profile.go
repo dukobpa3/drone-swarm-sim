@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -13,6 +14,9 @@ type Profile struct {
 	World  World   `yaml:"world"`
 	Layout Layout  `yaml:"layout"`
 	Groups []Group `yaml:"groups"`
+	// ModelPaths are directories with gz models (payloads, bases), relative
+	// to the profile. Default: ../models next to the profiles directory.
+	ModelPaths []string `yaml:"model_paths"`
 
 	path string
 }
@@ -58,10 +62,27 @@ type Group struct {
 	// Parameters applied on top of the autopilot defaults.
 	Params map[string]float64 `yaml:"params"`
 
+	// Base is the gz model the vehicle is built from when it has payloads.
+	// px4 defaults to the model without its gz_ prefix (gz_x500 -> x500).
+	Base string `yaml:"base"`
+	// Payloads are gz models mounted on the base with a fixed joint.
+	// With payloads, swarmsim spawns the model itself and the autopilot
+	// attaches to it.
+	Payloads []Payload `yaml:"payloads"`
+
 	// exec: command and environment, expanded with Go templates over Drone,
 	// e.g. "{{.Index}}", "{{.SysID}}", "{{.Name}}", "{{.X}}".
 	Command []string          `yaml:"command"`
 	Env     map[string]string `yaml:"env"`
+}
+
+type Payload struct {
+	// Name is unique on the vehicle and scopes the payload's topics.
+	// Defaults to the model name.
+	Name  string `yaml:"name"`
+	Model string `yaml:"model"`
+	// Pose on the base: x y z [roll pitch yaw], metres and radians.
+	Pose []float64 `yaml:"pose"`
 }
 
 // Drone is one vehicle after groups are expanded.
@@ -76,7 +97,13 @@ type Drone struct {
 	X, Y float64
 }
 
+// LoadProfile reads a profile. Its paths become absolute: processes such as gz
+// run in their own directories.
 func LoadProfile(path string) (*Profile, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	var p Profile
 	if err := loadYAML(path, &p); err != nil {
 		return nil, err
@@ -85,28 +112,65 @@ func LoadProfile(path string) (*Profile, error) {
 	if p.Name == "" {
 		p.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
-	if p.World.Sim == "" {
-		p.World.Sim = "gz"
-	}
-	if p.World.Name == "" {
-		p.World.Name = "default"
-	}
-	if p.Layout.Kind == "" {
-		p.Layout.Kind = "grid"
-	}
-	if p.Layout.Spacing == 0 {
-		p.Layout.Spacing = 3
-	}
+	p.World.setDefaults()
+	p.Layout.setDefaults()
 	for i := range p.Groups {
-		g := &p.Groups[i]
-		if g.Name == "" {
-			g.Name = g.Autopilot
-		}
-		if g.Sim == "" {
-			g.Sim = p.World.Sim
+		p.Groups[i].setDefaults(p.World.Sim)
+	}
+	p.resolveModelPaths()
+	return &p, nil
+}
+
+func (w *World) setDefaults() {
+	if w.Sim == "" {
+		w.Sim = "gz"
+	}
+	if w.Name == "" {
+		w.Name = "default"
+	}
+}
+
+func (l *Layout) setDefaults() {
+	if l.Kind == "" {
+		l.Kind = "grid"
+	}
+	if l.Spacing == 0 {
+		l.Spacing = 3
+	}
+}
+
+func (g *Group) setDefaults(worldSim string) {
+	if g.Name == "" {
+		g.Name = g.Autopilot
+	}
+	if g.Sim == "" {
+		g.Sim = worldSim
+	}
+	for j := range g.Payloads {
+		if g.Payloads[j].Name == "" {
+			g.Payloads[j].Name = g.Payloads[j].Model
 		}
 	}
-	return &p, nil
+}
+
+// resolveModelPaths makes model paths absolute, relative to the profile, or
+// defaults them to ../models when that exists.
+func (p *Profile) resolveModelPaths() {
+	base := filepath.Dir(p.path)
+	if len(p.ModelPaths) == 0 {
+		if def := filepath.Join(base, "..", "models"); dirExists(def) {
+			p.ModelPaths = []string{filepath.Clean(def)}
+		}
+		return
+	}
+	for i, mp := range p.ModelPaths {
+		p.ModelPaths[i] = expand(base, mp)
+	}
+}
+
+func dirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 func (p *Profile) Path() string { return p.path }

@@ -81,6 +81,10 @@ func FindLab(explicit string) (string, error) {
 }
 
 func LoadLab(path string) (*Lab, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	var lab Lab
 	if err := loadYAML(path, &lab); err != nil {
 		return nil, err

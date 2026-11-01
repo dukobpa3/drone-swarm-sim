@@ -1,0 +1,38 @@
+# Four x500 with different sensors. Stock PX4 variants spawn as PX4 builds
+# them; the thermal one is built by swarmsim from a base and a payload from
+# ../models, and PX4 attaches to it.
+name: px4-sensors
+
+world:
+  sim: gz
+  name: baylands
+  gui: true
+
+layout:
+  kind: grid
+  spacing: 2
+
+groups:
+  - name: lidar
+    autopilot: px4
+    model: gz_x500_lidar_2d     # PX4 reads the scan (collision prevention)
+    count: 1
+
+  - name: depth
+    autopilot: px4
+    model: gz_x500_depth        # OAK-D Lite: RGB + depth, for the companion
+    count: 1
+
+  - name: thermal
+    autopilot: px4
+    model: gz_x500              # airframe; the gz model is built from base + payloads
+    count: 1
+    payloads:
+      - name: ir
+        model: thermal_cam
+        pose: [0.12, 0, 0.24, 0, 0, 0]   # x y z roll pitch yaw on base_link
+
+  - name: plain
+    autopilot: px4
+    model: gz_x500
+    count: 1

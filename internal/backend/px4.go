@@ -57,6 +57,11 @@ func (px4) Check(env *Env, d config.Drone) error {
 	if _, err := px4Airframe(lab.Build, g.Model); err != nil {
 		return err
 	}
+	if px4Builds(g) {
+		if _, err := checkVehicle(env, g, px4Base(g)); err != nil {
+			return err
+		}
+	}
 	for _, other := range env.Drones {
 		if other.Group == g && other.Index > px4MaxIndex {
 			return fmt.Errorf("%s has index %d: PX4 instances above %d share offboard port 14549, put px4 groups first or use fewer drones", other.Name, other.Index, px4MaxIndex)
@@ -76,13 +81,35 @@ func (px4) Specs(env *Env, d config.Drone) ([]supervisor.Spec, error) {
 		base = os.Environ()
 	}
 	vars := []string{"PX4_SIM_MODEL=" + g.Model}
+	var spawn func(context.Context) error
 	switch g.Sim {
 	case "gz":
 		vars = append(vars,
 			"PX4_GZ_STANDALONE=1",
 			"PX4_GZ_WORLD="+env.Profile.WorldName(),
-			fmt.Sprintf("PX4_GZ_MODEL_POSE=%g,%g", d.X, d.Y),
 		)
+		if px4Builds(g) {
+			// swarmsim builds and spawns the model; PX4 attaches to it and
+			// takes its airframe from PX4_SIM_MODEL as usual.
+			mounts, err := checkVehicle(env, g, px4Base(g))
+			if err != nil {
+				return nil, err
+			}
+			sdf := filepath.Join(dir, "model.sdf")
+			model := composeModel(d.Name, px4Base(g), mounts)
+			spawn = func(ctx context.Context) error {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(sdf, model, 0o644); err != nil {
+					return err
+				}
+				return spawnModel(ctx, env, sdf, d.Name, d.X, d.Y)
+			}
+			vars = append(vars, "PX4_GZ_MODEL_NAME="+d.Name)
+		} else {
+			vars = append(vars, fmt.Sprintf("PX4_GZ_MODEL_POSE=%g,%g", d.X, d.Y))
+		}
 		// PX4 moves the world origin to PX4_HOME_*, so only pass it when the
 		// profile asks; otherwise the world keeps its own (baylands is in
 		// California, and missions planned there must stay valid).
@@ -100,12 +127,13 @@ func (px4) Specs(env *Env, d config.Drone) ([]supervisor.Spec, error) {
 		return px4Hung(waitLogLine(ctx, log, offset, px4StartedLine, px4FailedLine, px4BootTimeout))
 	}
 	spec := supervisor.Spec{
-		Name: d.Name,
-		Path: filepath.Join(bin, "px4"),
-		Args: []string{"-d", "-i", strconv.Itoa(d.Index), "-w", dir, filepath.Join(build, "etc")},
-		Env:  envcap.With(base, vars...),
-		Dir:  dir,
-		Log:  log,
+		Name:   d.Name,
+		Path:   filepath.Join(bin, "px4"),
+		Args:   []string{"-d", "-i", strconv.Itoa(d.Index), "-w", dir, filepath.Join(build, "etc")},
+		Env:    envcap.With(base, vars...),
+		Dir:    dir,
+		Log:    log,
+		Before: spawn,
 		// Starting the next PX4 before this one has spawned its model makes
 		// the gz create calls race, so wait for its startup script.
 		Ready: booted,
@@ -119,6 +147,16 @@ func (px4) Specs(env *Env, d config.Drone) ([]supervisor.Spec, error) {
 		}
 	}
 	return []supervisor.Spec{spec}, nil
+}
+
+// px4Builds says whether swarmsim builds the gz model instead of PX4.
+func px4Builds(g *config.Group) bool { return len(g.Payloads) > 0 || g.Base != "" }
+
+func px4Base(g *config.Group) string {
+	if g.Base != "" {
+		return g.Base
+	}
+	return strings.TrimPrefix(g.Model, "gz_")
 }
 
 func px4Home(h config.Home) []string {
